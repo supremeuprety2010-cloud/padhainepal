@@ -4,22 +4,48 @@
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2bnJsaXd2YWxmeXl6YWtpdmpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYwOTgwODUsImV4cCI6MjEwMTY3NDA4NX0.2oa4UVxjKTqgyCLKGpGeqK-d5HhvzB21yE9kald1wsw",
     "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2bnJsaXd2YWxmeXl6YWtpdmpvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjA5ODA4NSwiZXhwIjoyMTAxNjc0MDg1fQ.nn0H3KHuvEkwwZPchRxEkqJgiJ6x2KRqq6TkKnWmjAw",
     "VITE_SUPABASE_URL": "https://cvnrliwvalfyyzakivjo.supabase.co",
-    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2bnJsaXd2YWxmeXl6YWtpdmpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYwOTgwODUsImV4cCI6MjEwMTY3NDA4NX0.2oa4UVxjKTqgyCLKGpGeqK-d5HhvzB21yE9kald1wsw",
-    "VITE_GOOGLE_CLIENT_ID": "1065078894672-rmp5kp8vfjns5rn9kp5psfp16g691043.apps.googleusercontent.com",
-    "VITE_GOOGLE_AUTH_PROXY": "https://designarena.ai/auth/google/callback",
-    "FULLSTACK_PROJECT_REF": "cvnrliwvalfyyzakivjo",
-    "FULLSTACK_RESTORE_API_URL": "https://designarena.ai/api/fullstack-restore"
+    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2bnJsaXd2YWxmeXl6YWtpdmpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYwOTgwODUsImV4cCI6MjEwMTY3NDA4NX0.2oa4UVxjKTqgyCLKGpGeqK-d5HhvzB21yE9kald1wsw"
   },
   "rewrites": [
-    { "source": "/api/profile/:userId", "destination": "/api/profile/[userId]" },
-    { "source": "/api/doubts/:id", "destination": "/api/doubts/[id]" },
-    { "source": "/api/study-rooms/:roomId/messages", "destination": "/api/study-rooms/[roomId]/messages" },
-    { "source": "/api/study-rooms/:roomId/join", "destination": "/api/study-rooms/[roomId]/join" },
-    { "source": "/api/study-rooms/:roomId/members", "destination": "/api/study-rooms/[roomId]/members" },
-    { "source": "/api/study-rooms/:roomId/timer", "destination": "/api/study-rooms/[roomId]/timer" },
-    { "source": "/api/study-rooms/:roomId/vote", "destination": "/api/study-rooms/[roomId]/vote" },
-    { "source": "/api/study-rooms/:roomId", "destination": "/api/study-rooms/[roomId]" },
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/profile/:userId",
+      "destination": "/api/profile/[userId].js"
+    },
+    {
+      "source": "/api/doubts/:id",
+      "destination": "/api/doubts/[id].js"
+    },
+    {
+      "source": "/api/study-rooms/:roomId/messages",
+      "destination": "/api/study-rooms/[roomId]/messages.js"
+    },
+    {
+      "source": "/api/study-rooms/:roomId/join",
+      "destination": "/api/study-rooms/[roomId]/join.js"
+    },
+    {
+      "source": "/api/study-rooms/:roomId/members",
+      "destination": "/api/study-rooms/[roomId]/members.js"
+    },
+    {
+      "source": "/api/study-rooms/:roomId/timer",
+      "destination": "/api/study-rooms/[roomId]/timer.js"
+    },
+    {
+      "source": "/api/study-rooms/:roomId/vote",
+      "destination": "/api/study-rooms/[roomId]/vote.js"
+    },
+    {
+      "source": "/api/study-rooms/:roomId",
+      "destination": "/api/study-rooms/[roomId].js"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }
