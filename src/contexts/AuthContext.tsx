@@ -50,9 +50,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Helper to load profile from local storage cache
+  const getCachedProfile = (userId: string): UserProfile | null => {
+    try {
+      const cached = localStorage.getItem(`padhai_nepal_profile_${userId}`);
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return null;
+  };
+
+  const saveCachedProfile = (prof: UserProfile) => {
+    try {
+      if (prof?.id) {
+        localStorage.setItem(`padhai_nepal_profile_${prof.id}`, JSON.stringify(prof));
+      }
+    } catch {}
+  };
+
   const fetchProfile = async (u: User) => {
     const userId = u.id;
     const email = u.email;
+
+    // 1. First set from cache if available so UI opens instantly without buffering
+    const cached = getCachedProfile(userId);
+    if (cached) {
+      setProfile(cached);
+    }
 
     try {
       const queryParams = new URLSearchParams();
@@ -63,7 +86,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         if (data && !data.error && (data.id || data.full_name)) {
-          // If the profile has saved info (full_name, grade, subjects), mark onboarding_complete
           const hasSavedInfo = Boolean(
             data.onboarding_complete ||
             data.grade ||
@@ -71,10 +93,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             (data.full_name && data.full_name !== 'Student')
           );
 
-          setProfile({
+          const fetchedProfile: UserProfile = {
             ...data,
+            id: userId,
+            full_name: data.full_name || u.user_metadata?.full_name || 'Student',
             onboarding_complete: hasSavedInfo,
-          } as UserProfile);
+          };
+
+          setProfile(fetchedProfile);
+          saveCachedProfile(fetchedProfile);
           return;
         }
       }
@@ -82,34 +109,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Fetch profile error:', e);
     }
 
-    // Default fallback profile for new users or if profile row is not created yet
-    const fallbackProfile: UserProfile = {
-      id: userId,
-      full_name: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Student',
-      phone: u.phone || '',
-      grade: 10,
-      stream: null,
-      subjects: [],
-      school_id: null,
-      school_name: null,
-      district: null,
-      province: null,
-      avatar_url: u.user_metadata?.avatar_url || null,
-      avatar_color: 'from-blue-500 to-indigo-600',
-      bio: null,
-      instagram_url: null,
-      facebook_url: null,
-      linkedin_url: null,
-      twitter_url: null,
-      youtube_url: null,
-      website_url: null,
-      xp_points: 0,
-      streak_count: 0,
-      trial_start: new Date().toISOString(),
-      onboarding_complete: false,
-    };
+    // 2. If no profile found in Supabase and no cache, fallback profile
+    if (!cached) {
+      const fallbackProfile: UserProfile = {
+        id: userId,
+        full_name: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Student',
+        phone: u.phone || '',
+        grade: 10,
+        stream: null,
+        subjects: [],
+        school_id: null,
+        school_name: null,
+        district: null,
+        province: null,
+        avatar_url: u.user_metadata?.avatar_url || null,
+        avatar_color: 'from-blue-500 to-indigo-600',
+        bio: null,
+        instagram_url: null,
+        facebook_url: null,
+        linkedin_url: null,
+        twitter_url: null,
+        youtube_url: null,
+        website_url: null,
+        xp_points: 0,
+        streak_count: 0,
+        trial_start: new Date().toISOString(),
+        onboarding_complete: false,
+      };
 
-    setProfile(fallbackProfile);
+      setProfile(fallbackProfile);
+    }
   };
 
   const refreshProfile = async () => {
@@ -118,35 +147,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateLocalProfile = (updates: Partial<UserProfile>) => {
     setProfile(prev => {
-      if (!prev && user) {
-        return {
-          id: user.id,
-          full_name: 'Student',
-          phone: '',
-          grade: 10,
-          stream: null,
-          subjects: [],
-          school_id: null,
-          school_name: null,
-          district: null,
-          province: null,
-          avatar_url: null,
-          avatar_color: 'from-blue-500 to-indigo-600',
-          bio: null,
-          instagram_url: null,
-          facebook_url: null,
-          linkedin_url: null,
-          twitter_url: null,
-          youtube_url: null,
-          website_url: null,
-          xp_points: 0,
-          streak_count: 0,
-          trial_start: new Date().toISOString(),
-          onboarding_complete: true,
-          ...updates,
-        } as UserProfile;
-      }
-      return prev ? { ...prev, ...updates, onboarding_complete: true } as UserProfile : null;
+      const base = prev || {
+        id: user?.id || 'usr_default',
+        full_name: user?.user_metadata?.full_name || 'Student',
+        phone: '',
+        grade: 10,
+        stream: null,
+        subjects: [],
+        school_id: null,
+        school_name: null,
+        district: null,
+        province: null,
+        avatar_url: null,
+        avatar_color: 'from-blue-500 to-indigo-600',
+        bio: null,
+        instagram_url: null,
+        facebook_url: null,
+        linkedin_url: null,
+        twitter_url: null,
+        youtube_url: null,
+        website_url: null,
+        xp_points: 0,
+        streak_count: 0,
+        trial_start: new Date().toISOString(),
+        onboarding_complete: true,
+      };
+
+      const updated = { ...base, ...updates, onboarding_complete: true } as UserProfile;
+      saveCachedProfile(updated);
+      return updated;
     });
   };
 

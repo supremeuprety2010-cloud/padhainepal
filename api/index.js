@@ -7,29 +7,43 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  let path = url.pathname;
+  // Robust URL / Path Parsing for Vercel Serverless
+  let rawPath = req.headers['x-matched-path'] || req.headers['x-invoke-path'] || req.url || '';
+  let pathname = '/';
+  let searchParams = new URLSearchParams();
 
-  // Strip leading /api prefix if present
-  if (path.startsWith('/api')) {
-    path = path.substring(4);
+  try {
+    const parsed = new URL(rawPath, `http://${req.headers.host || 'localhost'}`);
+    pathname = parsed.pathname;
+    searchParams = parsed.searchParams;
+  } catch (e) {
+    pathname = rawPath.split('?')[0];
   }
-  if (!path || path === '') path = '/';
+
+  // Strip leading /api if present
+  if (pathname.startsWith('/api')) {
+    pathname = pathname.substring(4);
+  }
+  // Strip /index.js if present
+  if (pathname.startsWith('/index.js')) {
+    pathname = pathname.substring(9);
+  }
+  if (!pathname || pathname === '') pathname = '/';
 
   // Helper query getter
-  const getParam = (key) => url.searchParams.get(key) || req.query?.[key];
+  const getParam = (key) => searchParams.get(key) || req.query?.[key];
 
   try {
     // ──────────────────────────────────────────────────────────────────────────
     // 1. PROFILE (/profile)
     // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/profile' || path.startsWith('/profile/')) {
+    if (pathname === '/profile' || pathname.startsWith('/profile')) {
       if (req.method === 'GET') {
         let user_id = getParam('user_id');
         let email = getParam('email');
 
-        if (path.startsWith('/profile/') && path !== '/profile/avatar' && path !== '/profile/update') {
-          user_id = path.replace('/profile/', '');
+        if (pathname.startsWith('/profile/') && pathname !== '/profile/avatar' && pathname !== '/profile/update') {
+          user_id = pathname.replace('/profile/', '');
         }
 
         if (!user_id && !email) return res.status(400).json({ error: 'user_id or email required' });
@@ -54,9 +68,21 @@ export default async function handler(req, res) {
         return res.status(200).json(profileData || null);
       }
 
-      if (req.method === 'POST' || req.method === 'PUT' || path === '/profile/update') {
+      // Handle Avatar Upload (/profile/avatar)
+      if (pathname === '/profile/avatar' && req.method === 'POST') {
+        const { user_id, file_base64, content_type } = req.body || {};
+        if (!user_id || !file_base64) return res.status(400).json({ error: 'user_id and file_base64 required' });
+
+        const avatarDataUrl = `data:${content_type || 'image/png'};base64,${file_base64}`;
+
+        await supabase.from('users').update({ avatar_url: avatarDataUrl, updated_at: new Date().toISOString() }).eq('id', user_id);
+        return res.status(200).json({ url: avatarDataUrl });
+      }
+
+      // Save Profile (/profile or /profile/update)
+      if (req.method === 'POST' || req.method === 'PUT' || pathname === '/profile/update') {
         const body = req.body || {};
-        const user_id = body.user_id || getParam('user_id');
+        const user_id = body.user_id || body.id || getParam('user_id');
         if (!user_id) return res.status(400).json({ error: 'user_id required' });
 
         const profileData = {
@@ -73,9 +99,6 @@ export default async function handler(req, res) {
           bio: body.bio || null,
           avatar_url: body.avatar_url || null,
           avatar_color: body.avatar_color || null,
-          instagram_url: body.instagram_url || null,
-          facebook_url: body.facebook_url || null,
-          linkedin_url: body.linkedin_url || null,
           onboarding_complete: true,
           updated_at: new Date().toISOString(),
         };
@@ -87,9 +110,24 @@ export default async function handler(req, res) {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 2. SUBJECTS (/subjects)
+    // 2. LEADERBOARD (/leaderboard)
     // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/subjects') {
+    if (pathname === '/leaderboard') {
+      if (req.method === 'GET') {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, full_name, avatar_url, grade, school_name, xp_points, streak_count')
+          .order('xp_points', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        return res.status(200).json(data || []);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // 3. SUBJECTS (/subjects)
+    // ──────────────────────────────────────────────────────────────────────────
+    if (pathname === '/subjects') {
       if (req.method === 'GET') {
         const grade = getParam('grade');
         const stream = getParam('stream');
@@ -103,9 +141,9 @@ export default async function handler(req, res) {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 3. CHAPTERS (/chapters)
+    // 4. CHAPTERS (/chapters)
     // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/chapters') {
+    if (pathname === '/chapters') {
       if (req.method === 'GET') {
         const subject = getParam('subject');
         const grade = getParam('grade');
@@ -119,9 +157,9 @@ export default async function handler(req, res) {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 4. QUESTIONS (/questions)
+    // 5. QUESTIONS (/questions)
     // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/questions') {
+    if (pathname === '/questions') {
       if (req.method === 'GET') {
         const chapter_id = getParam('chapter_id');
         const subject = getParam('subject');
@@ -139,9 +177,9 @@ export default async function handler(req, res) {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 5. VIDEOS (/videos)
+    // 6. VIDEOS (/videos)
     // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/videos') {
+    if (pathname === '/videos') {
       if (req.method === 'GET') {
         const subject = getParam('subject');
         let query = supabase.from('videos').select('*').order('title');
@@ -153,9 +191,9 @@ export default async function handler(req, res) {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 6. NOTES (/notes)
+    // 7. NOTES (/notes)
     // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/notes') {
+    if (pathname === '/notes') {
       if (req.method === 'GET') {
         const subject = getParam('subject');
         const grade = getParam('grade');
@@ -169,9 +207,9 @@ export default async function handler(req, res) {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 7. PAST PAPER ANALYSIS (/past-paper-analysis)
+    // 8. PAST PAPER ANALYSIS (/past-paper-analysis or /ppa)
     // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/past-paper-analysis' || path === '/ppa') {
+    if (pathname === '/past-paper-analysis' || pathname === '/ppa') {
       if (req.method === 'GET') {
         const subject = getParam('subject');
         let query = supabase.from('past_paper_records').select('*');
@@ -183,9 +221,9 @@ export default async function handler(req, res) {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 8. COMMUNITY POSTS (/community-posts or /community/posts)
+    // 9. COMMUNITY POSTS (/community-posts or /community/posts)
     // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/community-posts' || path === '/community/posts') {
+    if (pathname === '/community-posts' || pathname === '/community/posts') {
       if (req.method === 'GET') {
         const { data, error } = await supabase.from('community_posts').select('*, users(full_name, avatar_url)').order('created_at', { ascending: false }).limit(50);
         if (error) throw error;
@@ -210,369 +248,205 @@ export default async function handler(req, res) {
       }
     }
 
-    // Community comments & likes
-    if (path === '/community/comments') {
-      if (req.method === 'GET') {
-        const post_id = getParam('post_id');
-        if (!post_id) return res.status(400).json({ error: 'post_id required' });
-        const { data, error } = await supabase.from('community_comments').select('*, users(full_name, avatar_url)').eq('post_id', post_id).order('created_at', { ascending: true });
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-      if (req.method === 'POST') {
-        const { post_id, user_id, content } = req.body || {};
-        if (!post_id || !user_id || !content) return res.status(400).json({ error: 'post_id, user_id, and content required' });
+    // ──────────────────────────────────────────────────────────────────────────
+    // 10. ADMIN PANEL ENDPOINTS (/admin/...)
+    // ──────────────────────────────────────────────────────────────────────────
+    if (pathname.startsWith('/admin')) {
+      const resource = pathname.replace('/admin/', '').replace('/admin', '');
 
-        const { data, error } = await supabase.from('community_comments').insert({ post_id, user_id, content }).select().single();
-        if (error) throw error;
-
-        // increment comments count
-        try {
-          const { data: p } = await supabase.from('community_posts').select('comments_count').eq('id', post_id).single();
-          await supabase.from('community_posts').update({ comments_count: (p?.comments_count || 0) + 1 }).eq('id', post_id);
-        } catch {}
-
-        return res.status(201).json(data);
-      }
-    }
-
-    if (path === '/community/like') {
-      if (req.method === 'POST') {
-        const { post_id, user_id } = req.body || {};
-        if (!post_id || !user_id) return res.status(400).json({ error: 'post_id and user_id required' });
-
-        const { data: existing } = await supabase.from('post_likes').select('id').eq('post_id', post_id).eq('user_id', user_id).maybeSingle();
-
-        if (existing) {
-          await supabase.from('post_likes').delete().eq('id', existing.id);
-          const { data: p } = await supabase.from('community_posts').select('likes_count').eq('id', post_id).single();
-          const newLikes = Math.max(0, (p?.likes_count || 1) - 1);
-          await supabase.from('community_posts').update({ likes_count: newLikes }).eq('id', post_id);
-          return res.status(200).json({ liked: false, likes_count: newLikes });
-        } else {
-          await supabase.from('post_likes').insert({ post_id, user_id });
-          const { data: p } = await supabase.from('community_posts').select('likes_count').eq('id', post_id).single();
-          const newLikes = (p?.likes_count || 0) + 1;
-          await supabase.from('community_posts').update({ likes_count: newLikes }).eq('id', post_id);
-          return res.status(200).json({ liked: true, likes_count: newLikes });
+      if (resource === 'users') {
+        if (req.method === 'GET') {
+          const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+          if (error) throw error;
+          return res.status(200).json(data || []);
         }
-      }
-    }
+        if (req.method === 'POST' || req.method === 'PUT') {
+          const { user_id, id, role, xp_points, streak_count, is_admin } = req.body || {};
+          const targetId = user_id || id;
+          if (!targetId) return res.status(400).json({ error: 'target user id required' });
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // 9. DOUBTS (/doubts & /doubt-answers)
-    // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/doubts' || path.startsWith('/doubts/')) {
-      if (req.method === 'GET') {
-        const subject = getParam('subject');
-        let query = supabase.from('doubts').select('*, users(full_name, avatar_url)').order('created_at', { ascending: false });
-        if (subject) query = query.ilike('subject_name', `%${subject}%`);
-        const { data, error } = await query.limit(50);
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-      if (req.method === 'POST') {
-        const { user_id, title, question_text, subject_name } = req.body || {};
-        if (!user_id || !title) return res.status(400).json({ error: 'user_id and title required' });
-        const { data, error } = await supabase.from('doubts').insert({
-          user_id,
-          title,
-          question_text: question_text || title,
-          subject_name: subject_name || 'General',
-          status: 'open',
-        }).select().single();
-        if (error) throw error;
-        return res.status(201).json(data);
-      }
-    }
+          const updates = {};
+          if (role !== undefined) updates.role = role;
+          if (xp_points !== undefined) updates.xp_points = parseInt(xp_points);
+          if (streak_count !== undefined) updates.streak_count = parseInt(streak_count);
+          if (is_admin !== undefined) updates.is_admin = Boolean(is_admin);
 
-    if (path === '/doubt-answers') {
-      if (req.method === 'GET') {
-        const doubt_id = getParam('doubt_id');
-        if (!doubt_id) return res.status(400).json({ error: 'doubt_id required' });
-        const { data, error } = await supabase.from('doubt_answers').select('*, users(full_name, avatar_url)').eq('doubt_id', doubt_id).order('created_at', { ascending: true });
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-      if (req.method === 'POST') {
-        const { doubt_id, user_id, answer_text } = req.body || {};
-        if (!doubt_id || !user_id || !answer_text) return res.status(400).json({ error: 'doubt_id, user_id, and answer_text required' });
-        const { data, error } = await supabase.from('doubt_answers').insert({ doubt_id, user_id, answer_text }).select().single();
-        if (error) throw error;
-        return res.status(201).json(data);
-      }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // 10. STUDY ROOMS (/study-rooms)
-    // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/study-rooms' || path.startsWith('/study-rooms/')) {
-      if (req.method === 'GET') {
-        const { data, error } = await supabase.from('study_rooms').select('*').order('created_at', { ascending: false });
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-      if (req.method === 'POST') {
-        const { name, subject, created_by } = req.body || {};
-        const { data, error } = await supabase.from('study_rooms').insert({
-          name: name || 'Nepal Study Room',
-          subject: subject || 'General',
-          created_by: created_by || null,
-          member_count: 1,
-        }).select().single();
-        if (error) throw error;
-        return res.status(201).json(data);
-      }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // 11. LEADERBOARD (/leaderboard)
-    // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/leaderboard') {
-      if (req.method === 'GET') {
-        const { data, error } = await supabase.from('users').select('id, full_name, avatar_url, grade, school_name, xp_points, streak_count').order('xp_points', { ascending: false }).limit(50);
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // 12. XP / QUESTION ATTEMPTS / CHAPTER PROGRESS
-    // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/xp') {
-      if (req.method === 'POST') {
-        const { user_id, xp, reason } = req.body || {};
-        if (!user_id || !xp) return res.status(400).json({ error: 'user_id and xp required' });
-
-        const { data: user } = await supabase.from('users').select('xp_points').eq('id', user_id).single();
-        const currentXP = user?.xp_points || 0;
-        const newXP = currentXP + parseInt(xp);
-
-        await supabase.from('users').update({ xp_points: newXP }).eq('id', user_id);
-        return res.status(200).json({ success: true, xp_points: newXP });
-      }
-    }
-
-    if (path === '/question-attempts') {
-      if (req.method === 'GET') {
-        const user_id = getParam('user_id');
-        if (!user_id) return res.status(400).json({ error: 'user_id required' });
-        const { data, error } = await supabase.from('question_attempts').select('*').eq('user_id', user_id);
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-      if (req.method === 'POST') {
-        const { user_id, question_id, selected_answer, is_correct } = req.body || {};
-        const { data, error } = await supabase.from('question_attempts').insert({ user_id, question_id, selected_answer, is_correct }).select().single();
-        if (error) throw error;
-        return res.status(201).json(data);
-      }
-    }
-
-    if (path === '/chapter-progress' || path === '/chapter-progress/auto') {
-      if (req.method === 'GET') {
-        const user_id = getParam('user_id');
-        const subject = getParam('subject');
-        if (!user_id) return res.status(400).json({ error: 'user_id required' });
-        let query = supabase.from('chapter_progress').select('*').eq('user_id', user_id);
-        if (subject) query = query.ilike('subject_name', `%${subject}%`);
-        const { data, error } = await query;
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-      if (req.method === 'POST') {
-        const { user_id, chapter_id, status, subject } = req.body || {};
-        const { data, error } = await supabase.from('chapter_progress').upsert({
-          user_id,
-          chapter_id,
-          status: status || 'completed',
-          subject_name: subject || null,
-        }, { onConflict: 'user_id,chapter_id' }).select().single();
-        if (error) throw error;
-        return res.status(200).json(data);
-      }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // 13. SCHOOLS / INSTITUTES / MISSIONS / TODOS / POMODORO
-    // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/schools') {
-      if (req.method === 'GET') {
-        const q = getParam('q');
-        let query = supabase.from('schools').select('*').order('name');
-        if (q) query = query.ilike('name', `%${q}%`);
-        const { data, error } = await query.limit(20);
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-    }
-
-    if (path === '/institutes') {
-      if (req.method === 'GET') {
-        const { data, error } = await supabase.from('institutes').select('*').order('name');
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-    }
-
-    if (path === '/institute-posts') {
-      if (req.method === 'GET') {
-        const { data, error } = await supabase.from('institute_posts').select('*, institutes(name, logo_url)').order('created_at', { ascending: false });
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-    }
-
-    if (path === '/missions') {
-      if (req.method === 'GET') {
-        const user_id = getParam('user_id');
-        if (!user_id) return res.status(400).json({ error: 'user_id required' });
-        const { data, error } = await supabase.from('daily_missions').select('*').eq('user_id', user_id);
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-    }
-
-    if (path === '/todos') {
-      if (req.method === 'GET') {
-        const user_id = getParam('user_id');
-        if (!user_id) return res.status(400).json({ error: 'user_id required' });
-        const { data, error } = await supabase.from('todos').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-      if (req.method === 'POST') {
-        const { user_id, title } = req.body || {};
-        const { data, error } = await supabase.from('todos').insert({ user_id, title, is_completed: false }).select().single();
-        if (error) throw error;
-        return res.status(201).json(data);
-      }
-    }
-
-    if (path === '/pomodoro') {
-      if (req.method === 'GET') {
-        const user_id = getParam('user_id');
-        if (!user_id) return res.status(400).json({ error: 'user_id required' });
-        const { data, error } = await supabase.from('pomodoro_sessions').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
-        if (error) throw error;
-        return res.status(200).json(data || []);
-      }
-      if (req.method === 'POST') {
-        const { user_id, duration_minutes, subject_name } = req.body || {};
-        const { data, error } = await supabase.from('pomodoro_sessions').insert({ user_id, duration_minutes, subject_name: subject_name || 'Study' }).select().single();
-        if (error) throw error;
-        return res.status(201).json(data);
-      }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // 14. AI TUTOR & GOOGLE AUTH
-    // ──────────────────────────────────────────────────────────────────────────
-    if (path === '/ai-tutor') {
-      if (req.method === 'POST') {
-        const { prompt, subject, grade } = req.body || {};
-        const systemPrompt = `You are PadhaiNepal AI Assistant, an expert, encouraging Nepali tutor for Grade ${grade || 10} ${subject || 'general'} curriculum (CDC/NEB). Answer clearly with bullet points, simple examples, and formulas if needed.`;
-
-        // Check if GEMINI_API_KEY is available
-        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-        if (!apiKey) {
-          return res.status(200).json({
-            reply: `Here is the explanation for your query:\n\n1. **Core Concept**: ${prompt}\n2. **NEB Board Tip**: Focus on key definitions, numerical formulas, and neat diagrams for high marks in Grade ${grade || 10} ${subject || ''}.\n3. **Quick Example**: Practice past questions from 2078-2080.`
-          });
+          const { data, error } = await supabase.from('users').update(updates).eq('id', targetId).select().single();
+          if (error) throw error;
+          return res.status(200).json(data);
         }
-
-        try {
-          const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: `${systemPrompt}\n\nStudent Question: ${prompt}` }] }]
-            }),
-          });
-          const geminiData = await geminiRes.json();
-          const replyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response. Please try again.';
-          return res.status(200).json({ reply: replyText });
-        } catch (e) {
-          return res.status(200).json({ reply: `Explanation: ${prompt}\n\nStudy tip: Review your Grade ${grade || 10} CDC textbook chapters.` });
-        }
-      }
-    }
-
-    if (path === '/auth/google') {
-      if (req.method === 'POST') {
-        const { token } = req.body || {};
-        if (!token) return res.status(400).json({ error: 'Token required' });
-        return res.status(200).json({ success: true, token });
-      }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // 15. ADMIN PANEL ENDPOINTS (/admin/...)
-    // ──────────────────────────────────────────────────────────────────────────
-    if (path.startsWith('/admin/')) {
-      const resource = path.replace('/admin/', '');
-
-      if (resource === 'users' && req.method === 'GET') {
-        const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
-        if (error) throw error;
-        return res.status(200).json(data || []);
       }
 
       if (resource === 'subjects') {
         if (req.method === 'GET') {
-          const { data, error } = await supabase.from('subjects').select('*').order('id');
-          if (error) throw error;
-          return res.status(200).json(data || []);
+          const { data: subData } = await supabase.from('subjects').select('*').order('grade').order('id');
+          const { data: chapData } = await supabase.from('chapters').select('*').order('chapter_number');
+
+          const subjectsWithChap = (subData || []).map(s => ({
+            ...s,
+            chapters: (chapData || []).filter(c => c.subject_name?.toLowerCase() === s.name?.toLowerCase() && c.grade === s.grade)
+          }));
+
+          return res.status(200).json(subjectsWithChap);
         }
+
         if (req.method === 'POST') {
-          const { data, error } = await supabase.from('subjects').insert(req.body).select().single();
-          if (error) throw error;
-          return res.status(201).json(data);
+          const body = req.body || {};
+
+          if (body.type === 'chapter') {
+            const { data, error } = await supabase.from('chapters').insert({
+              chapter_number: body.chapter_number || 1,
+              title: body.name || body.title,
+              subject_name: body.subject_name,
+              grade: parseInt(body.grade || 10),
+              description: body.description || null,
+            }).select().single();
+
+            if (error) throw error;
+            return res.status(201).json(data);
+          } else {
+            // Add new subject with auto-generated ID
+            const subjectData = {
+              name: body.name,
+              grade: parseInt(body.grade || 10),
+              stream: body.stream || null,
+              description: body.description || null,
+              icon: body.icon || '📚',
+            };
+
+            const { data, error } = await supabase.from('subjects').insert(subjectData).select().single();
+            if (error) {
+              console.error('Insert Subject Error:', error);
+              throw error;
+            }
+            return res.status(201).json(data);
+          }
+        }
+
+        if (req.method === 'DELETE') {
+          const body = req.body || {};
+          if (body.type === 'chapter' && body.id) {
+            await supabase.from('chapters').delete().eq('id', body.id);
+            return res.status(200).json({ ok: true });
+          } else if (body.id) {
+            await supabase.from('subjects').delete().eq('id', body.id);
+            return res.status(200).json({ ok: true });
+          }
         }
       }
 
       if (resource === 'videos') {
         if (req.method === 'GET') {
-          const { data, error } = await supabase.from('videos').select('*').order('id');
+          const { data, error } = await supabase.from('videos').select('*').order('created_at', { ascending: false });
           if (error) throw error;
           return res.status(200).json(data || []);
         }
         if (req.method === 'POST') {
-          const { data, error } = await supabase.from('videos').insert(req.body).select().single();
+          const { title, youtube_id, creator_name, channel_name, duration, views, subject_name, chapter_title, grade } = req.body || {};
+          const { data, error } = await supabase.from('videos').insert({
+            title,
+            youtube_id,
+            creator_name: creator_name || channel_name || 'NEB Educator',
+            duration: duration || '15:00',
+            views: views || '1.2k views',
+            subject_name: subject_name || 'General',
+            chapter_title: chapter_title || null,
+            grade: grade ? parseInt(grade) : 10,
+          }).select().single();
           if (error) throw error;
           return res.status(201).json(data);
+        }
+        if (req.method === 'DELETE') {
+          const { id } = req.body || {};
+          if (id) await supabase.from('videos').delete().eq('id', id);
+          return res.status(200).json({ ok: true });
         }
       }
 
       if (resource === 'notes') {
         if (req.method === 'GET') {
-          const { data, error } = await supabase.from('notes').select('*').order('id');
+          const { data, error } = await supabase.from('notes').select('*').order('created_at', { ascending: false });
           if (error) throw error;
           return res.status(200).json(data || []);
         }
         if (req.method === 'POST') {
-          const { data, error } = await supabase.from('notes').insert(req.body).select().single();
+          const { title, subject_name, grade, file_url, category, summary, is_premium } = req.body || {};
+          const { data, error } = await supabase.from('notes').insert({
+            title,
+            subject_name: subject_name || 'General',
+            grade: grade ? parseInt(grade) : 10,
+            file_url: file_url || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+            category: category || 'Chapter Notes',
+            summary: summary || title,
+            is_premium: Boolean(is_premium),
+          }).select().single();
           if (error) throw error;
           return res.status(201).json(data);
+        }
+        if (req.method === 'DELETE') {
+          const { id } = req.body || {};
+          if (id) await supabase.from('notes').delete().eq('id', id);
+          return res.status(200).json({ ok: true });
         }
       }
 
       if (resource === 'questions') {
         if (req.method === 'GET') {
-          const { data, error } = await supabase.from('questions').select('*').order('id').limit(100);
+          const { data, error } = await supabase.from('questions').select('*').order('id', { ascending: false }).limit(100);
           if (error) throw error;
           return res.status(200).json(data || []);
         }
         if (req.method === 'POST') {
-          const { data, error } = await supabase.from('questions').insert(req.body).select().single();
+          const { question_text, options, correct_answer, explanation, difficulty, year_asked, subject_name, grade } = req.body || {};
+          const { data, error } = await supabase.from('questions').insert({
+            question_text,
+            options: Array.isArray(options) ? options : [options],
+            correct_answer: parseInt(correct_answer || 0),
+            explanation: explanation || '',
+            difficulty: difficulty || 'medium',
+            year_asked: year_asked || '2080',
+            subject_name: subject_name || 'General',
+            grade: grade ? parseInt(grade) : 10,
+          }).select().single();
           if (error) throw error;
           return res.status(201).json(data);
+        }
+        if (req.method === 'DELETE') {
+          const { id } = req.body || {};
+          if (id) await supabase.from('questions').delete().eq('id', id);
+          return res.status(200).json({ ok: true });
+        }
+      }
+
+      if (resource === 'ppa') {
+        if (req.method === 'GET') {
+          const { data, error } = await supabase.from('past_paper_records').select('*').order('id', { ascending: false });
+          if (error) throw error;
+          return res.status(200).json(data || []);
+        }
+        if (req.method === 'POST') {
+          const { subject_name, chapter_title, weightage_marks, importance_level, frequent_questions, grade } = req.body || {};
+          const { data, error } = await supabase.from('past_paper_records').insert({
+            subject_name: subject_name || 'General',
+            chapter_title: chapter_title || 'General',
+            weightage_marks: weightage_marks ? parseInt(weightage_marks) : 5,
+            importance_level: importance_level || 'High',
+            frequent_questions: frequent_questions || '',
+            grade: grade ? parseInt(grade) : 10,
+          }).select().single();
+          if (error) throw error;
+          return res.status(201).json(data);
+        }
+        if (req.method === 'DELETE') {
+          const { id } = req.body || {};
+          if (id) await supabase.from('past_paper_records').delete().eq('id', id);
+          return res.status(200).json({ ok: true });
         }
       }
     }
 
     // Default fallback
-    return res.status(404).json({ error: `Endpoint not found: ${req.method} ${path}` });
+    return res.status(404).json({ error: `Endpoint not found: ${req.method} ${pathname}` });
 
   } catch (err) {
     console.error('API Error:', err);

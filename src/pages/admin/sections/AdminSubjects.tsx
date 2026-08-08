@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Plus, Trash2, X, GraduationCap, Layers } from 'lucide-react';
+import { BookOpen, Plus, Trash2, X, GraduationCap, Layers, Check, ShieldAlert, Sparkles, Hash, CheckCircle2 } from 'lucide-react';
 import LoadingSpinner from '../../../components/LoadingSpinner';
+
+const EMOJIS = ['📐', '🧪', '⚛️', '🧬', '📚', '🇳🇵', '💼', '💻', '⚖️', '🎨', '🌐', '📊'];
 
 export default function AdminSubjects({ roleInfo }: any) {
   const [subjects, setSubjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedGrade, setSelectedGrade] = useState<number | 'all'>(10);
+  const [selectedGrade, setSelectedGrade] = useState<number | 'all'>('all');
   const [showSubModal, setShowSubModal] = useState(false);
   const [showChapModal, setShowChapModal] = useState<any>(null); // subject obj
+  const [successMsg, setSuccessMsg] = useState('');
 
   // Subject Form
   const [subName, setSubName] = useState('');
@@ -44,14 +47,39 @@ export default function AdminSubjects({ roleInfo }: any) {
     if (!subName.trim()) return;
     setSavingSub(true);
     try {
-      await fetch('/api/admin/subjects', {
+      const res = await fetch('/api/admin/subjects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'subject', name: subName.trim(), grade: subGrade, stream: subStream || null, description: subDesc, icon: subIcon }),
+        body: JSON.stringify({
+          type: 'subject',
+          name: subName.trim(),
+          grade: subGrade,
+          stream: subStream || null,
+          description: subDesc.trim(),
+          icon: subIcon,
+        }),
       });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Failed to create subject');
+      }
+
+      if (data && data.id) {
+        // Immediately add newly created subject to top of state with its generated ID
+        setSubjects(prev => [data, ...prev]);
+        setSelectedGrade('all'); // Ensure newly created subject is visible
+        setSuccessMsg(`✓ Subject "${data.name}" created successfully with ID #${data.id}!`);
+        setTimeout(() => setSuccessMsg(''), 4000);
+      }
+
       setShowSubModal(false);
       setSubName(''); setSubDesc('');
-      fetchSubjects();
+      await fetchSubjects();
+    } catch (e: any) {
+      console.error('Save Subject error:', e);
+      alert(e.message || 'Failed to save subject. Please try again.');
     } finally { setSavingSub(false); }
   };
 
@@ -59,7 +87,7 @@ export default function AdminSubjects({ roleInfo }: any) {
     if (!chapTitle.trim() || !showChapModal) return;
     setSavingChap(true);
     try {
-      await fetch('/api/admin/subjects', {
+      const res = await fetch('/api/admin/subjects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -68,18 +96,29 @@ export default function AdminSubjects({ roleInfo }: any) {
           grade: showChapModal.grade,
           subject_name: showChapModal.name,
           chapter_number: chapNumber,
-          description: chapDesc,
+          description: chapDesc.trim(),
         }),
       });
+
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to save chapter');
+
+      setSuccessMsg(`✓ Chapter "${chapTitle}" added to ${showChapModal.name}!`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+
       setShowChapModal(null);
       setChapTitle(''); setChapDesc('');
-      fetchSubjects();
+      await fetchSubjects();
+    } catch (e: any) {
+      console.error('Save Chapter error:', e);
+      alert(e.message || 'Failed to save chapter.');
     } finally { setSavingChap(false); }
   };
 
-  const deleteSubject = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this subject?')) return;
+  const deleteSubject = async (id: number, name: string) => {
+    if (!confirm(`Are you sure you want to delete "${name}" (ID #${id})?`)) return;
     await fetch('/api/admin/subjects', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'subject', id }) });
+    setSubjects(prev => prev.filter(s => s.id !== id));
     fetchSubjects();
   };
 
@@ -91,22 +130,34 @@ export default function AdminSubjects({ roleInfo }: any) {
 
   return (
     <div className="space-y-6">
+      {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-3xl">
         <div>
-          <h1 className="text-2xl font-black text-white flex items-center gap-2"><BookOpen size={24} className="text-blue-400" /> Subjects & Chapters Hierarchy</h1>
-          <p className="text-slate-400 text-sm mt-0.5">Filtered by Grade level. Manage curriculum structure (Grade → Subject → Chapters).</p>
+          <h1 className="text-2xl font-black text-white flex items-center gap-2"><BookOpen size={24} className="text-blue-400" /> Subjects & Curriculum Manager</h1>
+          <p className="text-slate-400 text-sm mt-0.5">Create subjects with auto-generated IDs. Newly added subjects appear in student onboarding & hubs.</p>
         </div>
-        <button onClick={() => setShowSubModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2.5 rounded-2xl text-xs flex items-center gap-1.5 shadow-lg shadow-blue-500/20 self-start sm:self-auto">
-          <Plus size={16} /> Add Subject
+        <button onClick={() => setShowSubModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-5 py-3 rounded-2xl text-xs flex items-center gap-1.5 shadow-lg shadow-blue-500/20 self-start sm:self-auto transition-all hover:scale-105">
+          <Plus size={18} /> Add Subject
         </button>
       </div>
+
+      {/* Success Notification Alert */}
+      <AnimatePresence>
+        {successMsg && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+            className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-xs px-4 py-3 rounded-2xl flex items-center justify-between shadow-lg">
+            <span className="flex items-center gap-2"><CheckCircle2 size={16} /> {successMsg}</span>
+            <button onClick={() => setSuccessMsg('')} className="text-emerald-400 hover:text-white"><X size={14} /></button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Grade Selector Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 bg-slate-900 p-2 rounded-2xl border border-slate-800">
         <span className="text-xs font-bold text-slate-400 px-3 flex items-center gap-1">
-          <GraduationCap size={14} /> Grade:
+          <GraduationCap size={14} /> Filter Grade:
         </span>
-        {([8, 9, 10, 11, 12, 'all'] as const).map(g => (
+        {(['all', 8, 9, 10, 11, 12] as const).map(g => (
           <button
             key={String(g)}
             onClick={() => setSelectedGrade(g)}
@@ -119,140 +170,174 @@ export default function AdminSubjects({ roleInfo }: any) {
         ))}
       </div>
 
-      {loading ? <LoadingSpinner size="lg" text="Loading curriculum tree…" /> : (
-        <div className="space-y-4">
-          {filteredSubjects.map((sub) => (
-            <div key={sub.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{sub.icon || '📚'}</span>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-black text-white text-base">{sub.name}</h3>
-                      <span className="bg-blue-500/20 text-blue-300 text-xs font-bold px-2.5 py-0.5 rounded-full border border-blue-500/30">Grade {sub.grade}</span>
-                      {sub.stream && <span className="bg-purple-500/20 text-purple-300 text-xs font-bold px-2.5 py-0.5 rounded-full border border-purple-500/30">{sub.stream}</span>}
-                      <span className="text-xs text-slate-500">({(sub.chapters || []).length} chapters)</span>
+      {loading ? <LoadingSpinner size="lg" text="Loading Subjects & IDs..." /> : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filteredSubjects.map(sub => (
+            <motion.div key={sub.id || sub.name} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+              className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 relative overflow-hidden flex flex-col justify-between transition-all">
+              <div>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl p-2.5 bg-slate-800 rounded-2xl border border-slate-700/50 flex-shrink-0">{sub.icon || '📚'}</span>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-black text-white text-base">{sub.name}</h3>
+                        <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1">
+                          <Hash size={10} /> ID #{sub.id}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5 font-medium">Grade {sub.grade} {sub.stream ? `· ${sub.stream}` : ''}</p>
                     </div>
-                    {sub.description && <p className="text-slate-400 text-xs mt-0.5">{sub.description}</p>}
                   </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button onClick={() => { setShowChapModal(sub); setChapNumber((sub.chapters?.length || 0) + 1); }} className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white font-bold px-3 py-1.5 rounded-xl text-xs border border-emerald-500/30 flex items-center gap-1 transition-all">
-                    <Plus size={14} /> Add Chapter
-                  </button>
-                  <button onClick={() => deleteSubject(sub.id)} className="p-2 text-slate-500 hover:text-red-400 rounded-xl hover:bg-slate-800 transition-colors">
+                  <button onClick={() => deleteSubject(sub.id, sub.name)} className="text-slate-500 hover:text-red-400 p-1.5 rounded-xl hover:bg-red-500/10 transition-colors" title="Delete subject">
                     <Trash2 size={16} />
                   </button>
                 </div>
-              </div>
 
-              {/* Chapters list */}
-              <div className="pt-2 border-t border-slate-800 space-y-2">
-                {(sub.chapters || []).map((ch: any) => (
-                  <div key={ch.id} className="bg-slate-950 border border-slate-800/80 rounded-2xl p-3 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="w-6 h-6 rounded-lg bg-slate-800 text-slate-300 font-bold flex items-center justify-center text-[11px] flex-shrink-0">
-                        {ch.chapter_number}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="font-bold text-slate-200 truncate">{ch.title}</p>
-                        {ch.description && <p className="text-slate-500 text-[11px] truncate">{ch.description}</p>}
-                      </div>
-                    </div>
+                {sub.description && <p className="text-slate-400 text-xs line-clamp-2 mb-4 leading-relaxed">{sub.description}</p>}
 
-                    <button onClick={() => deleteChapter(ch.id)} className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors">
-                      <Trash2 size={14} />
+                {/* Chapter List */}
+                <div className="space-y-2 mt-4 pt-4 border-t border-slate-800">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <span className="flex items-center gap-1.5"><Layers size={13} className="text-amber-400" /> Chapters ({sub.chapters?.length || 0})</span>
+                    <button onClick={() => { setShowChapModal(sub); setChapNumber((sub.chapters?.length || 0) + 1); }} className="text-blue-400 hover:underline flex items-center gap-1">
+                      <Plus size={12} /> Add Chapter
                     </button>
                   </div>
-                ))}
-                {(sub.chapters || []).length === 0 && <p className="text-slate-500 text-xs py-2 italic text-center">No chapters yet. Click "Add Chapter" above.</p>}
+
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    {(sub.chapters || []).map((ch: any) => (
+                      <div key={ch.id || ch.title} className="flex items-center justify-between bg-slate-800/60 border border-slate-700/40 rounded-xl px-3 py-2 text-xs">
+                        <span className="font-semibold text-slate-200">{ch.chapter_number || '•'}. {ch.title}</span>
+                        <button onClick={() => deleteChapter(ch.id)} className="text-slate-500 hover:text-red-400 p-1">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                    {(!sub.chapters || sub.chapters.length === 0) && (
+                      <p className="text-slate-500 text-xs italic py-2">No chapters added yet.</p>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            </motion.div>
           ))}
 
           {filteredSubjects.length === 0 && (
-            <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-3xl">
-              <BookOpen size={32} className="text-slate-600 mx-auto mb-2" />
-              <p className="text-slate-400 text-sm font-bold">No subjects found for Grade {selectedGrade}</p>
-              <p className="text-slate-500 text-xs mt-1">Click "Add Subject" to create one.</p>
+            <div className="col-span-full text-center py-16 bg-slate-900 border border-slate-800 rounded-3xl">
+              <BookOpen size={48} className="mx-auto mb-2 text-slate-600" />
+              <p className="font-bold text-slate-300">No subjects found for Grade {selectedGrade}</p>
+              <p className="text-slate-500 text-xs mt-1">Click "Add Subject" above to create CDC curriculum subjects.</p>
             </div>
           )}
         </div>
       )}
 
       {/* Add Subject Modal */}
-      {showSubModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-black text-white text-base">New Subject</h3>
-              <button onClick={() => setShowSubModal(false)}><X size={18} className="text-slate-400" /></button>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Subject Name</label>
-              <input value={subName} onChange={e => setSubName(e.target.value)} placeholder="e.g. Physics" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500" />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Grade</label>
-                <select value={subGrade} onChange={e => setSubGrade(parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none">
-                  {[8, 9, 10, 11, 12].map(g => <option key={g} value={g}>Grade {g}</option>)}
-                </select>
+      <AnimatePresence>
+        {showSubModal && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-black text-white flex items-center gap-2"><BookOpen size={18} className="text-blue-400" /> Add New Subject</h3>
+                <button onClick={() => setShowSubModal(false)} className="text-slate-400 hover:text-white"><X size={18} /></button>
               </div>
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Stream</label>
-                <select value={subStream} onChange={e => setSubStream(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none">
-                  <option value="">Compulsory / None</option>
-                  <option value="Science">Science</option>
-                  <option value="Management">Management</option>
-                  <option value="Humanities">Humanities</option>
-                </select>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Subject Name (CDC / NEB)</label>
+                  <input type="text" placeholder="e.g. Computer Science, Economics, Accountancy" value={subName} onChange={e => setSubName(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-slate-300 font-bold block mb-1">Grade Level</label>
+                    <select value={subGrade} onChange={e => setSubGrade(parseInt(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white focus:outline-none">
+                      {[8, 9, 10, 11, 12].map(g => <option key={g} value={g}>Grade {g}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-slate-300 font-bold block mb-1">Stream (Grades 11-12)</label>
+                    <select value={subStream} onChange={e => setSubStream(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white focus:outline-none">
+                      <option value="">General / All</option>
+                      <option value="Science">Science</option>
+                      <option value="Management">Management</option>
+                      <option value="Humanities">Humanities</option>
+                      <option value="Education">Education</option>
+                      <option value="Law">Law</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Emoji Icon */}
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Subject Emoji Icon</label>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1">
+                    {EMOJIS.map(e => (
+                      <button key={e} type="button" onClick={() => setSubIcon(e)} className={`w-9 h-9 text-lg rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${subIcon === e ? 'bg-blue-600 border-2 border-white' : 'bg-slate-800 border border-slate-700'}`}>
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Description / Syllabus Summary</label>
+                  <textarea placeholder="Brief subject syllabus description..." value={subDesc} onChange={e => setSubDesc(e.target.value)} rows={2} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Description</label>
-              <input value={subDesc} onChange={e => setSubDesc(e.target.value)} placeholder="Brief overview" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none" />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button onClick={() => setShowSubModal(false)} className="flex-1 bg-slate-800 text-slate-300 font-bold py-2.5 rounded-xl text-xs">Cancel</button>
-              <button onClick={saveSubject} disabled={savingSub || !subName.trim()} className="flex-1 bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-blue-500/20">
-                {savingSub ? 'Saving…' : 'Create Subject'}
-              </button>
-            </div>
+
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setShowSubModal(false)} className="flex-1 bg-slate-800 text-slate-300 font-bold py-2.5 rounded-xl text-xs">Cancel</button>
+                <button onClick={saveSubject} disabled={savingSub} className="flex-1 bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1 shadow-lg shadow-blue-500/20">
+                  {savingSub ? 'Creating…' : 'Create Subject'}
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Add Chapter Modal */}
-      {showChapModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-black text-white text-base">Add Chapter to {showChapModal.name}</h3>
-              <button onClick={() => setShowChapModal(null)}><X size={18} className="text-slate-400" /></button>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Chapter Title</label>
-              <input value={chapTitle} onChange={e => setChapTitle(e.target.value)} placeholder="e.g. Kinematics" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Chapter Number</label>
-              <input type="number" min={1} value={chapNumber} onChange={e => setChapNumber(parseInt(e.target.value))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Description</label>
-              <input value={chapDesc} onChange={e => setChapDesc(e.target.value)} placeholder="Overview of topics" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none" />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button onClick={() => setShowChapModal(null)} className="flex-1 bg-slate-800 text-slate-300 font-bold py-2.5 rounded-xl text-xs">Cancel</button>
-              <button onClick={saveChapter} disabled={savingChap || !chapTitle.trim()} className="flex-1 bg-emerald-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-emerald-500/20">
-                {savingChap ? 'Saving…' : 'Add Chapter'}
-              </button>
-            </div>
+      <AnimatePresence>
+        {showChapModal && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-black text-white flex items-center gap-2"><Layers size={18} className="text-amber-400" /> Add Chapter to {showChapModal.name}</h3>
+                <button onClick={() => setShowChapModal(null)} className="text-slate-400 hover:text-white"><X size={18} /></button>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="col-span-1">
+                    <label className="text-slate-300 font-bold block mb-1">Ch. No.</label>
+                    <input type="number" value={chapNumber} onChange={e => setChapNumber(parseInt(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-center font-bold" />
+                  </div>
+                  <div className="col-span-3">
+                    <label className="text-slate-300 font-bold block mb-1">Chapter Title</label>
+                    <input type="text" placeholder="e.g. Wave Optics, Vectors, Mensuration" value={chapTitle} onChange={e => setChapTitle(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">Chapter Key Topics / Description</label>
+                  <textarea placeholder="Key concepts covered in this chapter..." value={chapDesc} onChange={e => setChapDesc(e.target.value)} rows={2} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setShowChapModal(null)} className="flex-1 bg-slate-800 text-slate-300 font-bold py-2.5 rounded-xl text-xs">Cancel</button>
+                <button onClick={saveChapter} disabled={savingChap} className="flex-1 bg-amber-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1">
+                  {savingChap ? 'Saving…' : 'Add Chapter'}
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 }

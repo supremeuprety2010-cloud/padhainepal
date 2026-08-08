@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Users, BookOpen, FileText, Video, HelpCircle, Target, BarChart3, ExternalLink, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Users, BookOpen, FileText, Video, HelpCircle, Target, ExternalLink, RefreshCw, Code, Copy, Check, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function AdminOverview({ roleInfo, user }: any) {
@@ -15,6 +15,8 @@ export default function AdminOverview({ roleInfo, user }: any) {
     mockTests: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [showSqlModal, setShowSqlModal] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const fetchStats = async () => {
     setLoading(true);
@@ -64,6 +66,157 @@ export default function AdminOverview({ roleInfo, user }: any) {
     { label: 'Mock Test Exams', value: stats.mockTests, icon: Target, color: 'from-amber-500 to-orange-600', link: '/admin/mock-tests' },
   ];
 
+  const fullSqlScript = `-- ============================================================================
+-- PADHAINEPAL COMPLETE SUPABASE POSTGRES DATABASE SCHEMA & SEED DATA
+-- Paste into Supabase SQL Editor: https://supabase.com/dashboard
+-- ============================================================================
+
+-- 1. USERS TABLE
+CREATE TABLE IF NOT EXISTS public.users (
+    id text PRIMARY KEY,
+    email text,
+    phone text,
+    full_name text DEFAULT 'Student',
+    grade integer DEFAULT 10,
+    stream text,
+    subjects text[] DEFAULT '{}',
+    school_id text,
+    school_name text,
+    district text,
+    province text,
+    avatar_url text,
+    avatar_color text DEFAULT 'from-blue-500 to-indigo-600',
+    bio text,
+    role text DEFAULT 'student',
+    is_admin boolean DEFAULT false,
+    xp_points integer DEFAULT 0,
+    streak_count integer DEFAULT 0,
+    trial_start timestamptz DEFAULT now(),
+    onboarding_complete boolean DEFAULT true,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+
+-- 2. SUBJECTS TABLE
+CREATE TABLE IF NOT EXISTS public.subjects (
+    id serial PRIMARY KEY,
+    name text NOT NULL,
+    grade integer NOT NULL,
+    stream text,
+    is_compulsory boolean DEFAULT true,
+    subject_type text DEFAULT 'compulsory',
+    description text,
+    icon text DEFAULT '📚',
+    gradient_theme text DEFAULT 'from-blue-600 to-indigo-700',
+    created_at timestamptz DEFAULT now()
+);
+
+-- 3. CHAPTERS TABLE
+CREATE TABLE IF NOT EXISTS public.chapters (
+    id serial PRIMARY KEY,
+    chapter_number integer NOT NULL,
+    title text NOT NULL,
+    subject_name text NOT NULL,
+    grade integer DEFAULT 10,
+    description text,
+    created_at timestamptz DEFAULT now()
+);
+
+-- 4. QUESTIONS TABLE
+CREATE TABLE IF NOT EXISTS public.questions (
+    id serial PRIMARY KEY,
+    subject_name text NOT NULL,
+    chapter_id text,
+    grade integer DEFAULT 10,
+    question_text text NOT NULL,
+    options text[] NOT NULL,
+    correct_answer integer NOT NULL,
+    explanation text,
+    difficulty text DEFAULT 'medium',
+    year_asked text DEFAULT '2080',
+    created_at timestamptz DEFAULT now()
+);
+
+-- 5. VIDEOS TABLE
+CREATE TABLE IF NOT EXISTS public.videos (
+    id serial PRIMARY KEY,
+    title text NOT NULL,
+    youtube_id text NOT NULL,
+    creator_name text DEFAULT 'NEB Educator',
+    duration text DEFAULT '15:00',
+    views text DEFAULT '1.2k views',
+    subject_name text NOT NULL,
+    chapter_title text,
+    grade integer DEFAULT 10,
+    created_at timestamptz DEFAULT now()
+);
+
+-- 6. NOTES TABLE
+CREATE TABLE IF NOT EXISTS public.notes (
+    id serial PRIMARY KEY,
+    title text NOT NULL,
+    subject_name text NOT NULL,
+    grade integer DEFAULT 10,
+    file_url text NOT NULL,
+    category text DEFAULT 'Chapter Notes',
+    summary text,
+    is_premium boolean DEFAULT false,
+    created_at timestamptz DEFAULT now()
+);
+
+-- 7. PAST PAPER RECORDS TABLE
+CREATE TABLE IF NOT EXISTS public.past_paper_records (
+    id serial PRIMARY KEY,
+    subject_name text NOT NULL,
+    chapter_title text NOT NULL,
+    weightage_marks integer DEFAULT 5,
+    importance_level text DEFAULT 'High',
+    frequent_questions text,
+    grade integer DEFAULT 10,
+    created_at timestamptz DEFAULT now()
+);
+
+-- 8. COMMUNITY POSTS TABLE
+CREATE TABLE IF NOT EXISTS public.community_posts (
+    id serial PRIMARY KEY,
+    user_id text NOT NULL,
+    content text NOT NULL,
+    image_url text,
+    subject text,
+    likes_count integer DEFAULT 0,
+    comments_count integer DEFAULT 0,
+    created_at timestamptz DEFAULT now()
+);
+
+-- 9. DOUBTS TABLE
+CREATE TABLE IF NOT EXISTS public.doubts (
+    id serial PRIMARY KEY,
+    user_id text NOT NULL,
+    subject_name text NOT NULL,
+    title text NOT NULL,
+    question_text text,
+    status text DEFAULT 'open',
+    created_at timestamptz DEFAULT now()
+);
+
+-- 10. STUDY ROOMS TABLE
+CREATE TABLE IF NOT EXISTS public.study_rooms (
+    id serial PRIMARY KEY,
+    name text NOT NULL,
+    subject text DEFAULT 'General',
+    created_by text,
+    member_count integer DEFAULT 1,
+    status text DEFAULT 'active',
+    created_at timestamptz DEFAULT now()
+);
+`;
+
+  const copySql = () => {
+    navigator.clipboard.writeText(fullSqlScript);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -81,9 +234,14 @@ export default function AdminOverview({ roleInfo, user }: any) {
           </p>
         </div>
 
-        <button onClick={fetchStats} className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-2xl text-xs border border-slate-700 flex items-center gap-2 self-start sm:self-auto transition-colors">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh Stats
-        </button>
+        <div className="flex gap-2 self-start sm:self-auto">
+          <button onClick={() => setShowSqlModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2.5 rounded-2xl text-xs flex items-center gap-1.5 shadow-lg shadow-blue-500/20">
+            <Code size={14} /> Get SQL Script
+          </button>
+          <button onClick={fetchStats} className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-2.5 rounded-2xl text-xs border border-slate-700 flex items-center gap-2 transition-colors">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -101,30 +259,40 @@ export default function AdminOverview({ roleInfo, user }: any) {
                 <ExternalLink size={16} className="text-slate-600 hover:text-slate-300" />
               </div>
               <p className="text-2xl font-black text-white">{s.value}</p>
-              <p className="text-slate-400 text-xs mt-1">{s.label}</p>
+              <p className="text-slate-400 text-xs font-semibold mt-1">{s.label}</p>
             </motion.div>
           );
         })}
       </div>
 
-      {/* Quick Actions Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
-        <h3 className="font-bold text-white text-sm">Quick Management Shortcuts</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <button onClick={() => navigate('/admin/questions')} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold p-3 rounded-2xl text-xs text-center transition-colors">
-            📥 Bulk CSV MCQ Import
-          </button>
-          <button onClick={() => navigate('/admin/videos')} className="bg-rose-600 hover:bg-rose-500 text-white font-bold p-3 rounded-2xl text-xs text-center transition-colors">
-            🎬 Add YouTube Video
-          </button>
-          <button onClick={() => navigate('/admin/notes')} className="bg-teal-600 hover:bg-teal-500 text-white font-bold p-3 rounded-2xl text-xs text-center transition-colors">
-            📄 Upload PDF Note
-          </button>
-          <button onClick={() => navigate('/admin/mock-tests')} className="bg-amber-600 hover:bg-amber-500 text-white font-bold p-3 rounded-2xl text-xs text-center transition-colors">
-            🎯 Build Mock Test
-          </button>
-        </div>
-      </div>
+      {/* SQL Script Drawer Modal */}
+      <AnimatePresence>
+        {showSqlModal && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-2xl space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-white flex items-center gap-2"><Code size={18} className="text-blue-400" /> Complete Supabase SQL Database Script</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Copy and run this in your Supabase SQL Editor to construct all 10 tables and constraints.</p>
+                </div>
+                <button onClick={() => setShowSqlModal(false)} className="text-slate-400 hover:text-white">✕</button>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 overflow-x-auto max-h-80 font-mono text-xs text-blue-300 leading-relaxed">
+                <pre>{fullSqlScript}</pre>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <span className="text-xs text-slate-500">10 Tables · DDL + Indexes</span>
+                <button onClick={copySql} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-blue-500/20">
+                  {copied ? <><Check size={14} /> Copied to Clipboard!</> : <><Copy size={14} /> Copy SQL Script</>}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

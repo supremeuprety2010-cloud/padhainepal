@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Camera, Check, X, Instagram, Facebook, Linkedin, Twitter,
-  Youtube, Globe, MapPin, School, User, FileText, ChevronDown,
-  Loader, AlertCircle, ChevronLeft
+  Youtube, Globe, MapPin, School, User, ChevronDown,
+  Loader, AlertCircle, ChevronLeft, Save
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import GlassCard from '../../components/GlassCard';
@@ -60,10 +60,10 @@ export default function EditProfile() {
   // Load existing profile
   useEffect(() => {
     if (!user) return;
-    fetch(`/api/profile/${user.id}`)
+    fetch(`/api/profile?user_id=${user.id}`)
       .then(r => r.json())
       .then(data => {
-        if (!data.error) {
+        if (data && !data.error) {
           setForm({
             full_name:     data.full_name     || '',
             bio:           data.bio           || '',
@@ -92,7 +92,7 @@ export default function EditProfile() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
     if (file.size > 5 * 1024 * 1024) { setError('Image must be under 5 MB'); return; }
-    // Preview
+
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = (reader.result as string).split(',')[1];
@@ -117,7 +117,7 @@ export default function EditProfile() {
     if (!user) return;
     setSaving(true); setError('');
     try {
-      const res = await fetch('/api/profile/update', {
+      const res = await fetch('/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user.id, ...form }),
@@ -126,7 +126,7 @@ export default function EditProfile() {
       if (!res.ok) throw new Error(data.error || 'Save failed');
       await refreshProfile();
       setSaved(true);
-      setTimeout(() => { setSaved(false); navigate(`/user/${user.id}`); }, 1200);
+      setTimeout(() => { setSaved(false); navigate(`/user/${user.id}`); }, 1000);
     } catch (err: any) {
       setError(err.message);
     } finally { setSaving(false); }
@@ -140,26 +140,27 @@ export default function EditProfile() {
 
   const initial = form.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'S';
 
-  const sections = [
-    { id: 'basic',    label: '👤 Basic Info',      icon: User      },
-    { id: 'location', label: '📍 Location',         icon: MapPin    },
-    { id: 'avatar',   label: '🎨 Avatar',           icon: Camera    },
-    { id: 'social',   label: '🔗 Social Links',     icon: Globe     },
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-32">
-      {/* Header */}
-      <div className="bg-white/90 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
-        <div className="flex items-center justify-between px-4 h-14">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-24">
+      {/* Top Header Bar with prominent Save Button */}
+      <div className="bg-white/90 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40 shadow-sm">
+        <div className="flex items-center justify-between px-4 h-16">
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)}
-            className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center">
-            <ChevronLeft size={18} />
+            className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center text-gray-700">
+            <ChevronLeft size={20} />
           </motion.button>
-          <h1 className="font-black text-gray-900">Edit Profile</h1>
-          <motion.button whileTap={{ scale: 0.95 }} onClick={handleSave} disabled={saving}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${saved ? 'bg-green-500 text-white' : 'bg-blue-600 text-white'} disabled:opacity-50`}>
-            {saving ? <Loader size={14} className="animate-spin" /> : saved ? <><Check size={14} className="inline mr-1" />Saved!</> : 'Save'}
+          <h1 className="font-black text-gray-900 text-base">Edit Profile</h1>
+          {/* Prominent Save Profile Button at the Top */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={handleSave}
+            disabled={saving || saved}
+            className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 ${
+              saved ? 'bg-green-500 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200'
+            } disabled:opacity-60`}
+          >
+            {saving ? <Loader size={14} className="animate-spin" /> : saved ? <Check size={14} /> : <Save size={14} />}
+            <span>{saving ? 'Saving...' : saved ? 'Saved!' : 'Save Profile'}</span>
           </motion.button>
         </div>
       </div>
@@ -223,7 +224,7 @@ export default function EditProfile() {
             {/* Read-only fields */}
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5">
               <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1.5">
-                <AlertCircle size={12} /> These cannot be changed after onboarding
+                <AlertCircle size={12} /> These details are set during onboarding
               </p>
               <div className="flex gap-2 flex-wrap">
                 <span className="bg-white border border-amber-200 text-amber-800 text-xs font-semibold px-3 py-1.5 rounded-full">
@@ -341,26 +342,8 @@ export default function EditProfile() {
                 </div>
               </div>
             ))}
-            <p className="text-xs text-gray-400 bg-gray-50 rounded-xl p-3">
-              💡 You can enter just the username (e.g. <strong>@aarav123</strong>) or the full URL. Links are only visible to other PadhaiNepal students.
-            </p>
           </div>
         </AccordionSection>
-      </div>
-
-      {/* Sticky save bar */}
-      <div className="fixed bottom-20 left-0 right-0 px-4 z-30">
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
-          className="bg-white/95 backdrop-blur-xl border border-gray-200 rounded-3xl p-3 shadow-2xl shadow-black/10">
-          <motion.button whileTap={{ scale: 0.97 }} onClick={handleSave} disabled={saving || saved}
-            className={`w-full font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 transition-all ${
-              saved ? 'bg-green-500 text-white' : 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-            } disabled:opacity-60`}>
-            {saving ? <><Loader size={18} className="animate-spin" /> Saving…</> :
-             saved  ? <><Check size={18} /> Profile Saved!</> :
-                      '💾 Save Profile'}
-          </motion.button>
-        </motion.div>
       </div>
     </div>
   );
