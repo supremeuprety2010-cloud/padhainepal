@@ -12,40 +12,12 @@
   },
   "rewrites": [
     {
-      "source": "/api/profile/:userId",
-      "destination": "/api/profile/[userId].js"
-    },
-    {
-      "source": "/api/doubts/:id",
-      "destination": "/api/doubts/[id].js"
-    },
-    {
-      "source": "/api/study-rooms/:roomId/messages",
-      "destination": "/api/study-rooms/[roomId]/messages.js"
-    },
-    {
-      "source": "/api/study-rooms/:roomId/join",
-      "destination": "/api/study-rooms/[roomId]/join.js"
-    },
-    {
-      "source": "/api/study-rooms/:roomId/members",
-      "destination": "/api/study-rooms/[roomId]/members.js"
-    },
-    {
-      "source": "/api/study-rooms/:roomId/timer",
-      "destination": "/api/study-rooms/[roomId]/timer.js"
-    },
-    {
-      "source": "/api/study-rooms/:roomId/vote",
-      "destination": "/api/study-rooms/[roomId]/vote.js"
-    },
-    {
-      "source": "/api/study-rooms/:roomId",
-      "destination": "/api/study-rooms/[roomId].js"
-    },
-    {
       "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/api",
+      "destination": "/api/index.js"
     },
     {
       "source": "/(.*)",

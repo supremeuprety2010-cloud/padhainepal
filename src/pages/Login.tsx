@@ -1,9 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, Phone, Eye, EyeOff, ArrowRight, BookOpen, ChevronLeft } from 'lucide-react';
 import supabase from '../lib/supabase';
 import { signInWithGoogle } from '../lib/googleAuth';
+
+// Google Client ID provided by user
+const GOOGLE_CLIENT_ID = '554263607781-4qh8cgrr3vgaf75nvgccs91meriks304.apps.googleusercontent.com';
+
+declare global {
+  interface Window {
+    google?: any;
+    handleCredentialResponse?: (response: any) => void;
+  }
+}
 
 export default function Login() {
   const navigate = useNavigate();
@@ -17,7 +27,106 @@ export default function Login() {
   const [error, setError] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
+  const [gisLoaded, setGisLoaded] = useState(false);
 
+  // ── 1. GOOGLE IDENTITY SERVICES CALLBACK FUNCTION ────────────────────────────
+  const handleCredentialResponse = useCallback(async (response: any) => {
+    if (!response || !response.credential) {
+      setError('Google Sign-In failed. No credential received.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const idToken = response.credential; // JWT ID Token from Google
+
+      // Send Google ID token credential (JWT) to backend endpoint /api/auth/google
+      const backendRes = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: idToken }),
+      });
+
+      const backendData = await backendRes.json();
+
+      // Authenticate / establish session with Supabase Auth using Google ID Token
+      const { error: sbError } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+
+      if (sbError) {
+        console.warn('Supabase signInWithIdToken warning:', sbError.message);
+      }
+
+      // Check if user has completed onboarding
+      if (backendData?.onboarding_complete === false) {
+        navigate('/onboarding');
+      } else {
+        navigate('/home');
+      }
+    } catch (err: any) {
+      console.error('Google credential response error:', err);
+      setError(err.message || 'Google Authentication failed');
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
+
+  // ── 2. SUPABASE GOOGLE OAUTH TRIGGER ──────────────────────────────────────────
+  const handleSupabaseGoogleOAuth = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      setError(err.message || 'Google OAuth failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── 3. LOAD GOOGLE IDENTITY SERVICES SDK SCRIPT ──────────────────────────────
+  useEffect(() => {
+    window.handleCredentialResponse = handleCredentialResponse;
+
+    const initializeGoogleButton = () => {
+      if (!window.google?.accounts?.id) return;
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: window.handleCredentialResponse,
+      });
+
+      const btnDiv = document.getElementById('buttonDiv');
+      if (btnDiv) {
+        btnDiv.innerHTML = '';
+        window.google.accounts.id.renderButton(btnDiv, {
+          theme: 'outline',
+          size: 'large',
+          width: 320,
+          text: mode === 'signup' ? 'signup_with' : 'signin_with',
+          shape: 'pill',
+        });
+        setGisLoaded(true);
+      }
+    };
+
+    if (window.google?.accounts?.id) {
+      initializeGoogleButton();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => initializeGoogleButton();
+      document.body.appendChild(script);
+    }
+  }, [handleCredentialResponse, mode]);
+
+  // ── Email Auth Handler ─────────────────────────────────────────────────────
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -39,6 +148,7 @@ export default function Login() {
     }
   };
 
+  // ── Phone OTP Auth Handler ─────────────────────────────────────────────────
   const handlePhoneOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -74,7 +184,7 @@ export default function Login() {
         </motion.button>
       </div>
 
-      {/* Hero */}
+      {/* Hero Header */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 pt-16 pb-4">
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.5 }} className="text-center mb-8">
           <div className="w-16 h-16 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl">
@@ -86,7 +196,7 @@ export default function Login() {
 
         <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }} className="w-full max-w-sm">
           <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-2xl">
-            {/* Mode Toggle */}
+            {/* Mode Toggle (Sign In / Sign Up) */}
             <div className="flex bg-white/10 rounded-2xl p-1 mb-6">
               {(['login', 'signup'] as const).map(m => (
                 <button key={m} onClick={() => setMode(m)} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${mode === m ? 'bg-white text-blue-700 shadow' : 'text-white/70'}`}>
@@ -95,7 +205,7 @@ export default function Login() {
               ))}
             </div>
 
-            {/* Auth Method Toggle */}
+            {/* Auth Method Toggle (Email / Phone) */}
             <div className="flex gap-2 mb-4">
               {(['email', 'phone'] as const).map(m => (
                 <button key={m} onClick={() => { setAuthMethod(m); setOtpSent(false); setError(''); }} className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-all ${authMethod === m ? 'bg-white/20 border-white/40 text-white' : 'border-white/10 text-white/50'}`}>
@@ -145,10 +255,25 @@ export default function Login() {
               <div className="flex-1 h-px bg-white/20" />
             </div>
 
-            <motion.button whileTap={{ scale: 0.97 }} onClick={() => signInWithGoogle('PadhaiNepal')} className="w-full bg-white/10 border border-white/20 text-white font-medium py-3 rounded-xl flex items-center justify-center gap-2 text-sm">
-              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-              Continue with Google
-            </motion.button>
+            {/* -----------------------------------------------------------------
+                SINGLE GOOGLE SIGN-IN OPTION
+                Renders official GIS button when available, or styled button for Supabase OAuth
+               ----------------------------------------------------------------- */}
+            <div className="flex justify-center my-1">
+              <div id="buttonDiv" className={`w-full flex justify-center min-h-[44px] ${!gisLoaded ? 'hidden' : ''}`}></div>
+
+              {!gisLoaded && (
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleSupabaseGoogleOAuth}
+                  disabled={loading}
+                  className="w-full bg-white hover:bg-gray-100 text-gray-800 font-bold py-3 rounded-2xl flex items-center justify-center gap-2.5 text-sm shadow-md transition-all"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                  <span>Sign in with Google</span>
+                </motion.button>
+              )}
+            </div>
           </div>
 
           <p className="text-center text-white/50 text-xs mt-4">By continuing, you agree to our Terms & Privacy Policy</p>

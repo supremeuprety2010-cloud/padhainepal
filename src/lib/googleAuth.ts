@@ -1,44 +1,19 @@
 import supabase from './supabase';
 
-const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-export async function signInWithGoogle(appName = 'PadhaiNepal') {
+export async function signInWithGoogle() {
   try {
-    // 1. Primary: Native Supabase Google OAuth (works on Vercel, localhost, and custom domains)
+    // Execute Supabase Google OAuth with exact redirectTo option
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/home`,
+        redirectTo: window.location.origin,
       },
     });
 
-    if (!error && data?.url) {
-      return;
+    if (error) {
+      console.error('Supabase Google OAuth error:', error.message);
     }
-
-    // 2. Fallback: Design Arena Auth Proxy Popup
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    const redirectUri = import.meta.env.VITE_GOOGLE_AUTH_PROXY;
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-    if (clientId && redirectUri) {
-      const state = btoa(JSON.stringify({ origin: window.location.origin, appName, supabaseUrl, supabaseAnonKey }));
-      const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&prompt=select_account&state=${encodeURIComponent(state)}`;
-      window.open(url, 'google-auth', isMobile() ? '' : 'width=500,height=600');
-
-      const handler = async (event: MessageEvent) => {
-        if (event.data?.type === 'google-auth-denied') { window.removeEventListener('message', handler); return; }
-        if (event.data?.type !== 'google-auth-success') return;
-        window.removeEventListener('message', handler);
-        if (event.data.access_token && event.data.refresh_token) {
-          await supabase.auth.setSession({ access_token: event.data.access_token, refresh_token: event.data.refresh_token });
-        } else if (event.data.id_token) {
-          await supabase.auth.signInWithIdToken({ provider: 'google', token: event.data.id_token });
-        }
-      };
-      window.addEventListener('message', handler);
-    }
+    return { data, error };
   } catch (err) {
     console.error('Google Sign In error:', err);
   }

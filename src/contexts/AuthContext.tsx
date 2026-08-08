@@ -37,10 +37,11 @@ interface AuthContextType {
   isAdmin: boolean;
   loading: boolean;
   refreshProfile: () => Promise<void>;
+  updateLocalProfile: (updates: Partial<UserProfile>) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
-  user: null, session: null, profile: null, isAdmin: false, loading: true, refreshProfile: async () => {},
+  user: null, session: null, profile: null, isAdmin: false, loading: true, refreshProfile: async () => {}, updateLocalProfile: () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -49,38 +50,126 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (u: User) => {
+    const userId = u.id;
+    const email = u.email;
+
     try {
-      const res = await fetch(`/api/profile/${userId}`);
+      const queryParams = new URLSearchParams();
+      if (userId) queryParams.set('user_id', userId);
+      if (email) queryParams.set('email', email);
+
+      const res = await fetch(`/api/profile?${queryParams.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        if (data && !data.error) setProfile(data as UserProfile);
+        if (data && !data.error && (data.id || data.full_name)) {
+          // If the profile has saved info (full_name, grade, subjects), mark onboarding_complete
+          const hasSavedInfo = Boolean(
+            data.onboarding_complete ||
+            data.grade ||
+            (data.subjects && data.subjects.length > 0) ||
+            (data.full_name && data.full_name !== 'Student')
+          );
+
+          setProfile({
+            ...data,
+            onboarding_complete: hasSavedInfo,
+          } as UserProfile);
+          return;
+        }
       }
     } catch (e) {
-      try {
-        const res2 = await fetch(`/api/profile?user_id=${userId}`);
-        if (res2.ok) { const d = await res2.json(); if (d) setProfile(d); }
-      } catch {}
+      console.error('Fetch profile error:', e);
     }
+
+    // Default fallback profile for new users or if profile row is not created yet
+    const fallbackProfile: UserProfile = {
+      id: userId,
+      full_name: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Student',
+      phone: u.phone || '',
+      grade: 10,
+      stream: null,
+      subjects: [],
+      school_id: null,
+      school_name: null,
+      district: null,
+      province: null,
+      avatar_url: u.user_metadata?.avatar_url || null,
+      avatar_color: 'from-blue-500 to-indigo-600',
+      bio: null,
+      instagram_url: null,
+      facebook_url: null,
+      linkedin_url: null,
+      twitter_url: null,
+      youtube_url: null,
+      website_url: null,
+      xp_points: 0,
+      streak_count: 0,
+      trial_start: new Date().toISOString(),
+      onboarding_complete: false,
+    };
+
+    setProfile(fallbackProfile);
   };
 
   const refreshProfile = async () => {
-    if (user) await fetchProfile(user.id);
+    if (user) await fetchProfile(user);
+  };
+
+  const updateLocalProfile = (updates: Partial<UserProfile>) => {
+    setProfile(prev => {
+      if (!prev && user) {
+        return {
+          id: user.id,
+          full_name: 'Student',
+          phone: '',
+          grade: 10,
+          stream: null,
+          subjects: [],
+          school_id: null,
+          school_name: null,
+          district: null,
+          province: null,
+          avatar_url: null,
+          avatar_color: 'from-blue-500 to-indigo-600',
+          bio: null,
+          instagram_url: null,
+          facebook_url: null,
+          linkedin_url: null,
+          twitter_url: null,
+          youtube_url: null,
+          website_url: null,
+          xp_points: 0,
+          streak_count: 0,
+          trial_start: new Date().toISOString(),
+          onboarding_complete: true,
+          ...updates,
+        } as UserProfile;
+      }
+      return prev ? { ...prev, ...updates, onboarding_complete: true } as UserProfile : null;
+    });
   };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id).finally(() => setLoading(false));
-      else setLoading(false);
+      if (session?.user) {
+        fetchProfile(session.user).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id).finally(() => setLoading(false));
-      else { setProfile(null); setLoading(false); }
+      if (session?.user) {
+        fetchProfile(session.user).finally(() => setLoading(false));
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -93,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, isAdmin, loading, refreshProfile }}>
+    <AuthContext.Provider value={{ user, session, profile, isAdmin, loading, refreshProfile, updateLocalProfile }}>
       {children}
     </AuthContext.Provider>
   );

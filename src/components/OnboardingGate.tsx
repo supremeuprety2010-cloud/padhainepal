@@ -7,18 +7,18 @@ export default function OnboardingGate({ children }: { children: React.ReactNode
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      <LoadingSpinner size="lg" text="Loading..." />
+      <LoadingSpinner size="lg" text="Loading PadhaiNepal..." />
     </div>
   );
 
   if (!user) return <Navigate to="/login" replace />;
 
-  // Consider onboarding complete if:
-  // 1. onboarding_complete flag is true, OR
-  // 2. profile has grade + at least one subject (means they've been through onboarding before)
+  // Consider onboarding complete if user has saved information (grade, subjects, or onboarding_complete flag)
   const isComplete =
     profile?.onboarding_complete === true ||
-    (profile?.grade != null && (profile?.subjects?.length ?? 0) > 0);
+    (profile?.grade != null && profile?.grade > 0) ||
+    (profile?.subjects?.length ?? 0) > 0 ||
+    Boolean(profile?.full_name && profile.full_name !== 'Student');
 
   if (!isComplete) return <Navigate to="/onboarding" replace />;
 
