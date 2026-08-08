@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Mail, Lock, Phone, Eye, EyeOff, ArrowRight, BookOpen, ChevronLeft } from 'lucide-react';
 import supabase from '../lib/supabase';
 import { signInWithGoogle } from '../lib/googleAuth';
+import { useAuth } from '../contexts/AuthContext';
 
 // Google Client ID provided by user
 const GOOGLE_CLIENT_ID = '554263607781-4qh8cgrr3vgaf75nvgccs91meriks304.apps.googleusercontent.com';
@@ -15,8 +16,21 @@ declare global {
   }
 }
 
+// Helper to decode Google JWT ID Token
+function parseJwt(token: string) {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+}
+
 export default function Login() {
   const navigate = useNavigate();
+  const { refreshProfile, updateLocalProfile } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
@@ -41,39 +55,82 @@ export default function Login() {
 
     try {
       const idToken = response.credential; // JWT ID Token from Google
+      const payload = parseJwt(idToken);
+      const googleEmail = payload?.email;
+      const googleName = payload?.name || googleEmail?.split('@')[0] || 'Student';
+      const googleSub = payload?.sub || 'google_user';
+      const googlePicture = payload?.picture || null;
 
-      // Send Google ID token credential (JWT) to backend endpoint /api/auth/google
-      const backendRes = await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: idToken }),
-      });
-
-      const backendData = await backendRes.json();
-
-      // Authenticate / establish session with Supabase Auth using Google ID Token
-      const { error: sbError } = await supabase.auth.signInWithIdToken({
+      // 1. First attempt native Supabase signInWithIdToken
+      const { data: sbData, error: sbError } = await supabase.auth.signInWithIdToken({
         provider: 'google',
         token: idToken,
       });
 
-      if (sbError) {
-        console.warn('Supabase signInWithIdToken warning:', sbError.message);
+      let userId = sbData?.user?.id;
+
+      // 2. If Supabase Auth signInWithIdToken is not configured or fails, fallback to email/password auto-auth
+      if (sbError || !userId) {
+        if (googleEmail) {
+          const fallbackPassword = `GAuth_${googleSub}_PadhaiNepal!`;
+          
+          // Try signing in
+          const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+            email: googleEmail,
+            password: fallbackPassword,
+          });
+
+          if (signInData?.user) {
+            userId = signInData.user.id;
+          } else {
+            // Sign up new user
+            const { data: signUpData } = await supabase.auth.signUp({
+              email: googleEmail,
+              password: fallbackPassword,
+              options: {
+                data: { full_name: googleName, avatar_url: googlePicture }
+              }
+            });
+            userId = signUpData?.user?.id;
+          }
+        }
       }
 
-      // Check if user has completed onboarding
-      if (backendData?.onboarding_complete === false) {
-        navigate('/onboarding');
-      } else {
-        navigate('/home');
+      // 3. Save / update profile in database
+      if (userId && googleEmail) {
+        const profilePayload = {
+          user_id: userId,
+          email: googleEmail,
+          full_name: googleName,
+          avatar_url: googlePicture,
+        };
+
+        try {
+          await fetch('/api/profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(profilePayload),
+          });
+        } catch {}
+
+        updateLocalProfile({
+          id: userId,
+          full_name: googleName,
+          avatar_url: googlePicture,
+          onboarding_complete: true,
+        });
+
+        await refreshProfile();
       }
+
+      navigate('/home', { replace: true });
     } catch (err: any) {
       console.error('Google credential response error:', err);
       setError(err.message || 'Google Authentication failed');
     } finally {
       setLoading(false);
     }
-  }, [navigate]);
+  }, [navigate, refreshProfile, updateLocalProfile]);
 
   // ── 2. SUPABASE GOOGLE OAUTH TRIGGER ──────────────────────────────────────────
   const handleSupabaseGoogleOAuth = async () => {
@@ -98,6 +155,7 @@ export default function Login() {
       window.google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
         callback: window.handleCredentialResponse,
+        auto_select: false,
       });
 
       const btnDiv = document.getElementById('buttonDiv');
@@ -139,6 +197,7 @@ export default function Login() {
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        await refreshProfile();
         navigate('/home');
       }
     } catch (err: any) {
@@ -255,10 +314,7 @@ export default function Login() {
               <div className="flex-1 h-px bg-white/20" />
             </div>
 
-            {/* -----------------------------------------------------------------
-                SINGLE GOOGLE SIGN-IN OPTION
-                Renders official GIS button when available, or styled button for Supabase OAuth
-               ----------------------------------------------------------------- */}
+            {/* SINGLE GOOGLE SIGN-IN OPTION */}
             <div className="flex justify-center my-1">
               <div id="buttonDiv" className={`w-full flex justify-center min-h-[44px] ${!gisLoaded ? 'hidden' : ''}`}></div>
 
