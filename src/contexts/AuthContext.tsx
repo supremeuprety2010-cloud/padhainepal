@@ -40,6 +40,9 @@ interface AuthContextType {
   updateLocalProfile: (updates: Partial<UserProfile>) => void;
 }
 
+const SUPERADMIN_IDS = ['af8c2244-2be1-4032-8ba4-8cc46f06de5f', '1ec58744-29c7-4da1-88fc-428463820f8c', '506633ec-70e9-4648-92e4-11acf39404a1'];
+const ADMIN_EMAILS = ['supremeuprety123@gmail.com', 'supremeuprety2010@gmail.com', 'admin@padhainepal.com'];
+
 const AuthContext = createContext<AuthContextType>({
   user: null, session: null, profile: null, isAdmin: false, loading: true, refreshProfile: async () => {}, updateLocalProfile: () => {},
 });
@@ -50,7 +53,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Helper to load profile from local storage cache
   const getCachedProfile = (userId: string): UserProfile | null => {
     try {
       const cached = localStorage.getItem(`padhai_nepal_profile_${userId}`);
@@ -71,7 +73,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = u.id;
     const email = u.email;
 
-    // 1. First set from cache if available so UI opens instantly without buffering
     const cached = getCachedProfile(userId);
     if (cached) {
       setProfile(cached);
@@ -109,7 +110,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Fetch profile error:', e);
     }
 
-    // 2. If no profile found in Supabase and no cache, fallback profile
     if (!cached) {
       const fallbackProfile: UserProfile = {
         id: userId,
@@ -205,7 +205,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isAdmin = Boolean(
-    user?.id === 'af8c2244-2be1-4032-8ba4-8cc46f06de5f' ||
+    (user?.id && SUPERADMIN_IDS.includes(user.id)) ||
+    (user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) ||
     profile?.role === 'admin' ||
     profile?.is_admin === true
   );

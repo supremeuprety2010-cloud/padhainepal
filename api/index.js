@@ -1,5 +1,12 @@
 import supabase from './db-client.js';
 
+// Default Admin Emails (auto-granted admin access upon sign in)
+const ADMIN_EMAILS = [
+  'supremeuprety123@gmail.com',
+  'supremeuprety2010@gmail.com',
+  'admin@padhainepal.com'
+];
+
 export default async function handler(req, res) {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -65,10 +72,14 @@ export default async function handler(req, res) {
           }
         }
 
+        if (profileData && email && ADMIN_EMAILS.includes(email.toLowerCase())) {
+          profileData.role = 'admin';
+          profileData.is_admin = true;
+        }
+
         return res.status(200).json(profileData || null);
       }
 
-      // Handle Avatar Upload (/profile/avatar)
       if (pathname === '/profile/avatar' && req.method === 'POST') {
         const { user_id, file_base64, content_type } = req.body || {};
         if (!user_id || !file_base64) return res.status(400).json({ error: 'user_id and file_base64 required' });
@@ -79,15 +90,16 @@ export default async function handler(req, res) {
         return res.status(200).json({ url: avatarDataUrl });
       }
 
-      // Save Profile (/profile or /profile/update)
       if (req.method === 'POST' || req.method === 'PUT' || pathname === '/profile/update') {
         const body = req.body || {};
         const user_id = body.user_id || body.id || getParam('user_id');
         if (!user_id) return res.status(400).json({ error: 'user_id required' });
 
+        const userEmail = body.email || null;
+
         const profileData = {
           id: user_id,
-          email: body.email || null,
+          email: userEmail,
           full_name: body.full_name || 'Student',
           grade: body.grade ? parseInt(body.grade) : 10,
           stream: body.stream || null,
@@ -162,12 +174,10 @@ export default async function handler(req, res) {
     if (pathname === '/questions') {
       if (req.method === 'GET') {
         const chapter_id = getParam('chapter_id');
-        const subject = getParam('subject');
-        const limit = parseInt(getParam('limit') || '20');
+        const limit = parseInt(getParam('limit') || '30');
 
         let query = supabase.from('questions').select('*');
         if (chapter_id) query = query.eq('chapter_id', chapter_id);
-        if (subject) query = query.ilike('subject_name', `%${subject}%`);
         query = query.limit(limit);
 
         const { data, error } = await query;
@@ -256,22 +266,69 @@ export default async function handler(req, res) {
 
       if (resource === 'users') {
         if (req.method === 'GET') {
-          const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
-          if (error) throw error;
-          return res.status(200).json(data || []);
+          // 1. Fetch public.users
+          const { data: publicUsers } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+
+          // 2. Fetch auth.users via service role and auto-sync
+          try {
+            const { data: authData } = await supabase.auth.admin.listUsers();
+            if (authData?.users && authData.users.length > 0) {
+              const publicUserIds = new Set((publicUsers || []).map(u => u.id));
+
+              for (const au of authData.users) {
+                if (!publicUserIds.has(au.id)) {
+                  await supabase.from('users').upsert({
+                    id: au.id,
+                    email: au.email || null,
+                    full_name: au.user_metadata?.full_name || au.email?.split('@')[0] || 'Student',
+                    avatar_url: au.user_metadata?.avatar_url || null,
+                    onboarding_complete: true,
+                    created_at: au.created_at || new Date().toISOString(),
+                  }, { onConflict: 'id' });
+                }
+              }
+
+              const { data: updatedPublicUsers } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+              return res.status(200).json(updatedPublicUsers || []);
+            }
+          } catch (e) {
+            console.error('List auth users error:', e);
+          }
+
+          return res.status(200).json(publicUsers || []);
         }
+
         if (req.method === 'POST' || req.method === 'PUT') {
-          const { user_id, id, role, xp_points, streak_count, is_admin } = req.body || {};
-          const targetId = user_id || id;
-          if (!targetId) return res.status(400).json({ error: 'target user id required' });
+          const body = req.body || {};
+          const targetId = body.user_id || body.id;
+          const targetEmail = body.email;
 
-          const updates = {};
-          if (role !== undefined) updates.role = role;
-          if (xp_points !== undefined) updates.xp_points = parseInt(xp_points);
-          if (streak_count !== undefined) updates.streak_count = parseInt(streak_count);
-          if (is_admin !== undefined) updates.is_admin = Boolean(is_admin);
+          if (!targetId && !targetEmail) {
+            return res.status(400).json({ error: 'target user_id or email required' });
+          }
 
-          const { data, error } = await supabase.from('users').update(updates).eq('id', targetId).select().single();
+          let existingUser = null;
+          if (targetId) {
+            const { data } = await supabase.from('users').select('id, email').eq('id', targetId).maybeSingle();
+            existingUser = data;
+          }
+          if (!existingUser && targetEmail) {
+            const { data } = await supabase.from('users').select('id, email').eq('email', targetEmail).maybeSingle();
+            existingUser = data;
+          }
+
+          const upsertPayload = {
+            id: existingUser?.id || targetId || `usr_${Date.now()}`,
+            email: targetEmail || existingUser?.email || null,
+            full_name: body.full_name || (targetEmail ? targetEmail.split('@')[0] : 'Student'),
+            onboarding_complete: true,
+            updated_at: new Date().toISOString(),
+          };
+
+          if (body.xp_points !== undefined) upsertPayload.xp_points = parseInt(body.xp_points);
+          if (body.streak_count !== undefined) upsertPayload.streak_count = parseInt(body.streak_count);
+
+          const { data, error } = await supabase.from('users').upsert(upsertPayload, { onConflict: 'id' }).select().single();
           if (error) throw error;
           return res.status(200).json(data);
         }
@@ -305,7 +362,6 @@ export default async function handler(req, res) {
             if (error) throw error;
             return res.status(201).json(data);
           } else {
-            // Add new subject with auto-generated ID
             const subjectData = {
               name: body.name,
               grade: parseInt(body.grade || 10),
@@ -317,7 +373,7 @@ export default async function handler(req, res) {
             const { data, error } = await supabase.from('subjects').insert(subjectData).select().single();
             if (error) {
               console.error('Insert Subject Error:', error);
-              throw error;
+              return res.status(500).json({ error: error.message });
             }
             return res.status(201).json(data);
           }
@@ -342,16 +398,15 @@ export default async function handler(req, res) {
           return res.status(200).json(data || []);
         }
         if (req.method === 'POST') {
-          const { title, youtube_id, creator_name, channel_name, duration, views, subject_name, chapter_title, grade } = req.body || {};
+          const { title, youtube_id, creator_name, channel_name, duration, views, subject_name, chapter_title } = req.body || {};
           const { data, error } = await supabase.from('videos').insert({
             title,
             youtube_id,
-            creator_name: creator_name || channel_name || 'NEB Educator',
+            channel_name: creator_name || channel_name || 'NEB Educator',
             duration: duration || '15:00',
             views: views || '1.2k views',
             subject_name: subject_name || 'General',
             chapter_title: chapter_title || null,
-            grade: grade ? parseInt(grade) : 10,
           }).select().single();
           if (error) throw error;
           return res.status(201).json(data);
@@ -370,15 +425,12 @@ export default async function handler(req, res) {
           return res.status(200).json(data || []);
         }
         if (req.method === 'POST') {
-          const { title, subject_name, grade, file_url, category, summary, is_premium } = req.body || {};
+          const { title, subject_name, grade, file_url, content } = req.body || {};
           const { data, error } = await supabase.from('notes').insert({
             title,
             subject_name: subject_name || 'General',
             grade: grade ? parseInt(grade) : 10,
-            file_url: file_url || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-            category: category || 'Chapter Notes',
-            summary: summary || title,
-            is_premium: Boolean(is_premium),
+            content: file_url || content || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
           }).select().single();
           if (error) throw error;
           return res.status(201).json(data);
@@ -397,16 +449,15 @@ export default async function handler(req, res) {
           return res.status(200).json(data || []);
         }
         if (req.method === 'POST') {
-          const { question_text, options, correct_answer, explanation, difficulty, year_asked, subject_name, grade } = req.body || {};
+          const { question_text, options, correct_answer, explanation, difficulty, year_asked, chapter_id } = req.body || {};
           const { data, error } = await supabase.from('questions').insert({
+            chapter_id: chapter_id ? parseInt(chapter_id) : 1,
             question_text,
             options: Array.isArray(options) ? options : [options],
             correct_answer: parseInt(correct_answer || 0),
             explanation: explanation || '',
-            difficulty: difficulty || 'medium',
-            year_asked: year_asked || '2080',
-            subject_name: subject_name || 'General',
-            grade: grade ? parseInt(grade) : 10,
+            difficulty: difficulty || 'easy',
+            year_asked: parseInt(year_asked || 2080),
           }).select().single();
           if (error) throw error;
           return res.status(201).json(data);
@@ -425,14 +476,13 @@ export default async function handler(req, res) {
           return res.status(200).json(data || []);
         }
         if (req.method === 'POST') {
-          const { subject_name, chapter_title, weightage_marks, importance_level, frequent_questions, grade } = req.body || {};
+          const { subject_name, chapter_title, year_asked, question_count, weightage_pct } = req.body || {};
           const { data, error } = await supabase.from('past_paper_records').insert({
             subject_name: subject_name || 'General',
             chapter_title: chapter_title || 'General',
-            weightage_marks: weightage_marks ? parseInt(weightage_marks) : 5,
-            importance_level: importance_level || 'High',
-            frequent_questions: frequent_questions || '',
-            grade: grade ? parseInt(grade) : 10,
+            year_asked: year_asked ? parseInt(year_asked) : 2080,
+            question_count: question_count ? parseInt(question_count) : 1,
+            weightage_pct: weightage_pct ? parseInt(weightage_pct) : 5,
           }).select().single();
           if (error) throw error;
           return res.status(201).json(data);
