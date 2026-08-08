@@ -2,6 +2,19 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  directory = "api"
+
+# Redirect /api/* requests to Netlify Functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# SPA Fallback Redirect for React Router DOM
 [[redirects]]
   from = "/*"
   to = "/index.html"

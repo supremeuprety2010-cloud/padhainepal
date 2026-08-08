@@ -27,6 +27,3 @@ dist-ssr
 .vite-source-tags.js
 .vercel
 public/padhai-nepal-source.zip
-
-# Local Netlify folder
-.netlify
